@@ -1,149 +1,149 @@
+# Импортируем необходимые библиотеки
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 from scipy.stats import pearsonr, spearmanr, kendalltau
-from fastdtw import fastdtw
+from dtaidistance import dtw
+from statsmodels.tsa.seasonal import seasonal_decompose
 
-# Определяем свою функцию для евклидова расстояния
-def euclidean(a, b):
-    return abs(a - b)
-
-# Загрузка данных из файлов
+# Путь к файлам данных. Замените пути на свои, если файлы находятся в другом месте.
 files = {
-    'b30hz10': 'b30hz10.txt',
-    'b30hz20': 'b30hz20.txt',
-    'b30hz40': 'b30hz40.txt',
-    'h30hz20': 'h30hz20.txt',
-    'h30hz30': 'h30hz30.txt',
-    'h30hz50': 'h30hz50.txt'
+    'normative': ['h30hz10.txt', 'h30hz20.txt', 'h30hz40.txt'],
+    'non_normative': ['b30hz10.txt', 'b30hz20.txt', 'b30hz40.txt']
 }
 
-# Чтение файлов и извлечение первых 100 значений по каждому каналу (4 канала на файл)
-data = {name: pd.read_csv(file, sep='\t', header=None).iloc[:100] for name, file in files.items()}
+# 1. Загрузка данных
+# Словарь для хранения загруженных данных
+data = {'normative': [], 'non_normative': []}
+
+# Загружаем данные из файлов и выбираем первые 100 значений
+for category, file_list in files.items():
+    for file_path in file_list:
+        df = pd.read_csv(file_path, sep='\s+', header=None).iloc[:100]
+        data[category].append(df)
 
 
-# Функция для расчета коэффициентов корреляции
-def calculate_correlations(data1, data2):
-    pearson_corr = [pearsonr(data1.iloc[:, i], data2.iloc[:, i])[0] for i in range(4)]
-    spearman_corr = [spearmanr(data1.iloc[:, i], data2.iloc[:, i])[0] for i in range(4)]
-    kendall_corr = [kendalltau(data1.iloc[:, i], data2.iloc[:, i])[0] for i in range(4)]
-
-    return pearson_corr, spearman_corr, kendall_corr
-
-# Функция рассчитывает коэффициенты корреляции для всех четырех каналов вибрации:
-# Корреляция Пирсона: показывает линейную зависимость между сигналами
-# Корреляция Спирмена: используется для нелинейных зависимостей (ранговая корреляция)
-# Корреляция Кендалла: также ранговая корреляция, но с другим способом подсчета
-
-# Функция возвращает три списка (по одному для каждого типа корреляции)
-
-
-# Функция для расчета DTW
-def calculate_dtw(data1, data2):
-    dtw_distances = [fastdtw(data1.iloc[:, i].to_numpy(), data2.iloc[:, i].to_numpy(), dist=euclidean)[0] for i in range(4)]
-    return dtw_distances
-
-# Функция рассчитывает DTW для каждого канала. DTW измеряет расстояние между временными рядами, учитывая возможность
-# временной деформации (растягивание и сжатие по времени)
-# Для расчета используется функция fastdtw, которая использует евклидово расстояние для измерения различий между
-# значениями сигналов
-
-
-# Расчет корреляций и DTW между всеми комбинациями сигналов
-results = {}
-for name1, data1 in data.items():
-    for name2, data2 in data.items():
-        if name1 != name2:
-            pearson_corr, spearman_corr, kendall_corr = calculate_correlations(data1, data2)
-            dtw_distances = calculate_dtw(data1, data2)
-            results[f'{name1} vs {name2}'] = {
+# 2. Расчет коэффициентов корреляции
+def calculate_correlations(df):
+    """
+    Функция для расчета коэффициентов корреляции (Пирсона, Спирмена, Кендала) между всеми парами столбцов в DataFrame.
+    """
+    corr_results = {}
+    for i in range(df.shape[1]):
+        for j in range(i + 1, df.shape[1]):
+            pearson_corr, _ = pearsonr(df[i], df[j])
+            spearman_corr, _ = spearmanr(df[i], df[j])
+            kendall_corr, _ = kendalltau(df[i], df[j])
+            corr_results[(i, j)] = {
                 'pearson': pearson_corr,
                 'spearman': spearman_corr,
-                'kendall': kendall_corr,
-                'dtw': dtw_distances
+                'kendall': kendall_corr
             }
-
-# Вывод результатов
-for combo, result in results.items():
-    print(f"Результаты для {combo}:")
-    print(f"  Пирсон: {result['pearson']}")
-    print(f"  Спирмен: {result['spearman']}")
-    print(f"  Кендалл: {result['kendall']}")
-    print(f"  DTW: {result['dtw']}")
-    print()
+    return corr_results
 
 
-
-import numpy as np
-import matplotlib.pyplot as plt
-
-# Функция для расчета спектральной плотности через FFT
-def calculate_spectral_density(data):
-    spectral_densities = []
-    for i in range(4):  # Для каждого канала
-        signal = data.iloc[:, i].to_numpy()  # Преобразуем данные в массив
-        fft_values = np.fft.fft(signal)  # Применяем FFT
-        fft_frequencies = np.fft.fftfreq(len(signal))  # Получаем частоты
-        spectral_density = np.abs(fft_values) ** 2  # Вычисляем спектральную плотность
-        spectral_densities.append((fft_frequencies, spectral_density))  # Сохраняем частоты и плотности
-    return spectral_densities
-
-# Здесь используется быстрое преобразование Фурье (FFT) для разложения сигналов по частотам. Результат отображается в
-# виде спектральной плотности – это квадрат амплитуды спектра.
-
-for name, data1 in data.items():
-    spectral_density = calculate_spectral_density(data1)
-    for i in range(4):
-        freqs, density = spectral_density[i]
-        plt.figure()
-        plt.plot(freqs, density)
-        plt.title(f"Спектральная плотность для {name}, Канал {i+1}")
-        plt.xlabel('Частота')
-        plt.ylabel('Спектральная плотность')
-        plt.show()
-
-# Спектральная плотность для сигнала из файла b30hz40, канал 1:
-# На графике могут быть такие частоты:
-# Пик на 10 Гц: Это может указывать на вибрации, вызванные регулярной работой подшипника. Это частота вращения.
-# Пик на 30 Гц: Возможно, это вторичная гармоника, вызванная сложными механическими процессами или дефектами.
-# Распределение мощности по высокочастотной области: Может указывать на присутствие шума в сигнале или на вибрации с очень высокой частотой.
-
-# Спектральная плотность для сигнала из файла b30hz10, канал 2:
-# Если ты видишь другой спектр (например, пик на другой частоте), это может указывать на изменение в динамике системы:
-# Смещение пиков может свидетельствовать о том, что вибрации в системе изменились (например, из-за износа подшипников или других механических факторов).
-# Отсутствие выраженных пиков: Если спектр "расплывчатый", это может указывать на нестабильность в системе или на то, что сигнал слишком зашумлен.
+# Рассчитываем корреляции для каждой категории файлов
+correlations = {'normative': [], 'non_normative': []}
+for category, dfs in data.items():
+    correlations[category] = [calculate_correlations(df) for df in dfs]
 
 
-
-from statsmodels.tsa.seasonal import STL
-
-
-# Функция для STL-разложения (сезонно-трендовое разложение)
-def decompose_series(data):
-    decompositions = []
-    for i in range(4):  # Для каждого канала
-        signal = data.iloc[:, i]  # Извлекаем данные одного канала
-        stl = STL(signal, period=12)  # Выбираем период (можно настроить)
-        result = stl.fit()
-        decompositions.append(result)
-    return decompositions
-
-# STL-разложение делит временные ряды на три компоненты:
-# Тренд (Trend): долгосрочная тенденция изменения сигнала
-# Сезонность (Seasonal): периодические колебания или повторяющиеся циклы в сигнале
-# Остаток (Residual): случайные колебания или шум, которые остаются после удаления тренда и сезонности
+# 3. Расчет расстояний DTW (динамического времени)
+def calculate_dtw_distances(df):
+    """
+    Функция для вычисления расстояний DTW между всеми парами столбцов в DataFrame.
+    """
+    dtw_results = {}
+    for i in range(df.shape[1]):
+        for j in range(i + 1, df.shape[1]):
+            distance = dtw.distance(df[i].values, df[j].values)
+            dtw_results[(i, j)] = distance
+    return dtw_results
 
 
-# для одного файла
-for name, data1 in data.items():
-    decompositions = decompose_series(data1)
-    for i in range(4):
-        result = decompositions[i]
+# Рассчитываем DTW расстояния для всех файлов
+dtw_distances = {'normative': [], 'non_normative': []}
+for category, dfs in data.items():
+    dtw_distances[category] = [calculate_dtw_distances(df) for df in dfs]
 
-        # Визуализация компонентов
-        result.plot()
-        plt.title(f"STL-разложение для {name}, Канал {i + 1}")
-        plt.show()
 
-# Тренд может показывать постепенное увеличение амплитуды вибраций, что указывает на ухудшение работы подшипника.
-# Сезонность выявляет регулярные колебания (например, вибрации, которые появляются с определенной периодичностью в ходе работы системы).
-# Остатки могут показывать резкие всплески вибраций, которые выходят за пределы сезонности и тренда, указывая на аномалии.
+# 4. Спектральный анализ
+def plot_spectral_density(df, file_name):
+    """
+    Функция для вычисления и отображения спектральной плотности для каждого датчика в файле.
+    """
+    plt.figure(figsize=(12, 8))
+    for i in range(df.shape[1]):
+        freqs = np.fft.fftfreq(len(df[i]))
+        fft_values = np.fft.fft(df[i].values)
+        power_spectrum = np.abs(fft_values) ** 2
+        plt.plot(freqs[:len(freqs) // 2], power_spectrum[:len(power_spectrum) // 2], label=f'Датчик {i + 1}')
+
+    plt.title(f'Спектральная плотность - {file_name}')
+    plt.xlabel('Частота')
+    plt.ylabel('Мощность')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+
+# Отображаем спектральную плотность для каждого файла
+for category, dfs in data.items():
+    for idx, df in enumerate(dfs):
+        file_name = files[category][idx]
+        plot_spectral_density(df, file_name)
+
+
+# 5. Разложение временных рядов
+def decompose_and_plot(df, file_name):
+    """
+    Функция для разложения временного ряда на тренд, сезонные и шумовые компоненты с отображением результатов.
+    """
+    plt.figure(figsize=(15, 10))
+    for i in range(df.shape[1]):
+        decomposition = seasonal_decompose(df[i], model='additive', period=10)
+
+        plt.subplot(df.shape[1], 4, i * 4 + 1)
+        plt.plot(decomposition.observed)
+        plt.title(f'Датчик {i + 1} - Наблюдаемые данные')
+
+        plt.subplot(df.shape[1], 4, i * 4 + 2)
+        plt.plot(decomposition.trend)
+        plt.title(f'Датчик {i + 1} - Тренд')
+
+        plt.subplot(df.shape[1], 4, i * 4 + 3)
+        plt.plot(decomposition.seasonal)
+        plt.title(f'Датчик {i + 1} - Сезонная компонента')
+
+        plt.subplot(df.shape[1], 4, i * 4 + 4)
+        plt.plot(decomposition.resid)
+        plt.title(f'Датчик {i + 1} - Шум')
+
+    plt.suptitle(f'Разложение временного ряда - {file_name}')
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.show()
+
+
+# Выполняем разложение для всех файлов
+for category, dfs in data.items():
+    for idx, df in enumerate(dfs):
+        file_name = files[category][idx]
+        decompose_and_plot(df, file_name)
+
+# Вывод результатов корреляций и DTW расстояний
+print("Корреляции и DTW расстояния для каждого файла:")
+
+for category in correlations.keys():
+    print(f"\n{category.upper()}")
+    for idx, (corr_result, dtw_result) in enumerate(zip(correlations[category], dtw_distances[category])):
+        file_name = files[category][idx]
+        print(f"\nФайл: {file_name}")
+
+        print("Корреляции:")
+        for (i, j), corr_vals in corr_result.items():
+            print(f"  Датчики {i + 1}-{j + 1}: Пирсон={corr_vals['pearson']:.3f}, "
+                  f"Спирмен={corr_vals['spearman']:.3f}, Кендалл={corr_vals['kendall']:.3f}")
+
+        print("DTW расстояния:")
+        for (i, j), distance in dtw_result.items():
+            print(f"  Датчики {i + 1}-{j + 1}: DTW расстояние = {distance:.3f}")

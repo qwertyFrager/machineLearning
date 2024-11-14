@@ -57,19 +57,35 @@ plt.show()
 # 3. Интерполяция Лагранжа
 # Полином Лагранжа используется для интерполяции набора точек с использованием полиномиальной функции.
 # Основная идея заключается в том, что полином проходит через все заданные точки. Метод может стать нестабильным для больших наборов данных.
-lagrange_poly = lagrange(x_values.values, y_values.values)
-y_lagrange = np.polyval(lagrange_poly, x_new)
 
-# Выводим график интерполяции Лагранжа
+# Нормализация данных для интерполяции Лагранжа
+x_mean = x_values.mean()
+x_std = x_values.std()
+y_mean = y_values.mean()
+y_std = y_values.std()
+
+# Нормализуем значения
+x_values_normalized = (x_values - x_mean) / x_std
+y_values_normalized = (y_values - y_mean) / y_std
+
+# Интерполяция Лагранжа на нормализованных данных
+lagrange_poly_normalized = lagrange(x_values_normalized.values, y_values_normalized.values)
+y_lagrange_normalized = np.polyval(lagrange_poly_normalized, (x_new - x_mean) / x_std)
+
+# Преобразуем результат обратно в исходный масштаб
+y_lagrange = y_lagrange_normalized * y_std + y_mean
+
+# Построение графика интерполяции Лагранжа
 plt.figure(figsize=(10,6))
 plt.plot(x_values, y_values, 'o', label='Исходные точки')
-plt.plot(x_new, y_lagrange, '-', label='Интерполяция Лагранжа')
+plt.plot(x_new, y_lagrange, '-', label='Интерполяция Лагранжа (нормализованная)')
 plt.xlabel('Timestamp (ordinal)')
 plt.ylabel('Power (kW)')
-plt.title('Интерполяция методом Лагранжа потребляемой мощности')
+plt.title('Интерполяция методом Лагранжа потребляемой мощности (с нормализацией)')
 plt.legend()
 plt.grid(True)
 plt.show()
+
 
 # 4. Интерполяция методом Ньютона
 # Интерполяция Ньютона использует метод разделённых разностей для построения полинома.
